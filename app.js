@@ -1,7 +1,8 @@
 const express = require("express");
 const db = require('./models/db');
+const jwt = require('jsonwebtoken');
 const Usuario = require('./models/Usuario');
-
+const { promisify } = require('util');
 const bcrypt = require('bcryptjs');
 
 const app = express();
@@ -10,13 +11,11 @@ app.use(express.json());
 
 app.get("/", (req, res) => {
     return res.json({
-        erro: false,
-        nome: "nome Usuario",
-        email: "emailDoUsuario"
+        erro: false
     });
 });
 
-app.get("/users", async (req, res) => {
+app.get("/users", validarToken, async (req, res) => {
     await Usuario.findAll({
         attributes: ['id', 'name', 'email', 'senha'],
         order: [['id', 'DESC']]
@@ -34,7 +33,7 @@ app.get("/users", async (req, res) => {
         });
 });
 
-app.get("/user/:id", async (req, res) => {
+app.get("/user/:id", validarToken, async (req, res) => {
     const { id } = req.params;
 
     /* await Usuario.findAll({
@@ -76,7 +75,7 @@ app.post("/user", async (req, res) => {
         });
 });
 
-app.put("/user", async (req, res) => {
+app.put("/user", validarToken, async (req, res) => {
     const { id } = req.body;
 
     await Usuario.update(req.body, {
@@ -96,7 +95,7 @@ app.put("/user", async (req, res) => {
     });
 });
 
-app.put("/user-senha", async (req, res) => {
+app.put("/user-senha", validarToken, async (req, res) => {
     const { id, senha } = req.body;
 
     var senhaCript = await bcrypt.hash(senha, 8);
@@ -121,7 +120,7 @@ app.put("/user-senha", async (req, res) => {
     });
 });
 
-app.delete("/user/:id", async (req, res) => {
+app.delete("/user/:id", validarToken, async (req, res) => {
     const { id } = req.params;
 
     await Usuario.destroy({
@@ -143,15 +142,13 @@ app.delete("/user/:id", async (req, res) => {
 
 app.post("/login", async (req, res) => {
     const usuario = await Usuario.findOne({
-        attributes:{
-            column: senha
-        },
+        attributes: ['id', 'name', 'email', 'senha'],
         where:{
             email: req.body.email
         }
     });
 
-    if(usuario === null){
+    if(await usuario === null){
         return res.status(400).json({
             sucesso: "Erro",
             mensagem: "Usuario não encontrado"
@@ -165,8 +162,45 @@ app.post("/login", async (req, res) => {
         });
     }
 
-    
+    var token = jwt.sign({ id: usuario.id }, 'a6f5dsa4f5d4as4w7ha',{
+        // expiresIn: 600
+        // 7 dias
+        expiresIn: '7d'
+    });
+
+    return res.json({
+        sucesso: "Conectado",
+        mensagem: "Usuario conectado com sucesso !",
+        token
+    });
 });
+
+async function validarToken(req, res, next){
+    /* return res.json({
+        mensagem: 'validou token'
+    }); */
+    const authHeader = req.headers.authorization;
+    const [bearer, token] = authHeader.split(' ');
+
+    if(!token){
+        return res.status(400).json({
+            erro: true,
+            mensagem: "Erro: Necessário fazer login para entrar na página !"
+        });
+    };
+
+    try{
+        const decoded = await promisify(jwt.verify)(token, 'a6f5dsa4f5d4as4w7ha');
+        req.usuarioId = decoded.id;
+
+        return next();  
+    } catch (err) {
+        return res.status(401).json({
+            erro: true,
+            mensagem: "Erro: Necessário fazer login para entrar na página !"
+        });
+    }
+}
 
 app.listen(8080, () => {
     console.log("Server Iniciado");
