@@ -1,21 +1,25 @@
 const express = require("express");
+var cors = require('cors');
 const db = require('./models/db');
 const jwt = require('jsonwebtoken');
+require('dotenv').config();
 const Usuario = require('./models/Usuario');
-const { promisify } = require('util');
+const { eAdmin } = require('./middlewares/auth');
 const bcrypt = require('bcryptjs');
 
 const app = express();
 
 app.use(express.json());
 
-app.get("/", (req, res) => {
-    return res.json({
-        erro: false
-    });
+app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE");
+    res.header("Access-Control-Allow-Headers", "X-PINGOTHER, Content-Type, Authorization");
+    app.use(cors());
+    next();
 });
 
-app.get("/users", validarToken, async (req, res) => {
+app.get("/users", eAdmin, async (req, res) => {
     await Usuario.findAll({
         attributes: ['id', 'name', 'email', 'senha'],
         order: [['id', 'DESC']]
@@ -33,7 +37,7 @@ app.get("/users", validarToken, async (req, res) => {
         });
 });
 
-app.get("/user/:id", validarToken, async (req, res) => {
+app.get("/user/:id", eAdmin, async (req, res) => {
     const { id } = req.params;
 
     /* await Usuario.findAll({
@@ -75,7 +79,7 @@ app.post("/user", async (req, res) => {
         });
 });
 
-app.put("/user", validarToken, async (req, res) => {
+app.put("/user", eAdmin, async (req, res) => {
     const { id } = req.body;
 
     await Usuario.update(req.body, {
@@ -95,7 +99,7 @@ app.put("/user", validarToken, async (req, res) => {
     });
 });
 
-app.put("/user-senha", validarToken, async (req, res) => {
+app.put("/user-senha", eAdmin, async (req, res) => {
     const { id, senha } = req.body;
 
     var senhaCript = await bcrypt.hash(senha, 8);
@@ -120,7 +124,7 @@ app.put("/user-senha", validarToken, async (req, res) => {
     });
 });
 
-app.delete("/user/:id", validarToken, async (req, res) => {
+app.delete("/user/:id", eAdmin, async (req, res) => {
     const { id } = req.params;
 
     await Usuario.destroy({
@@ -135,7 +139,7 @@ app.delete("/user/:id", validarToken, async (req, res) => {
     }).catch(() => {
         return res.status(400).json({
             erro: "Error",
-            mensagem: "Usuario não apagado com sucesso"
+            mensagem: "Usuario não apagado"
         });
     });
 });
@@ -143,28 +147,27 @@ app.delete("/user/:id", validarToken, async (req, res) => {
 app.post("/login", async (req, res) => {
     const usuario = await Usuario.findOne({
         attributes: ['id', 'name', 'email', 'senha'],
-        where:{
+        where: {
             email: req.body.email
         }
     });
 
-    if(await usuario === null){
+    if (await usuario === null) {
         return res.status(400).json({
             sucesso: "Erro",
-            mensagem: "Usuario não encontrado"
+            mensagem: "Usuario ou Senha incorreta"
         });
     }
 
-    if(!(await bcrypt.compare(req.body.senha, usuario.senha))){
+    if (!(await bcrypt.compare(req.body.senha, usuario.senha))) {
         return res.json({
             sucesso: "Erro",
-            mensagem: "Senha inválida"
+            mensagem: "Usuario ou Senha incorreta"
         });
     }
 
-    var token = jwt.sign({ id: usuario.id }, 'a6f5dsa4f5d4as4w7ha',{
-        // expiresIn: 600
-        // 7 dias
+    var token = jwt.sign({ id: usuario.id }, process.env.SECRET, {
+        // expiresIn: 600 --- 7 dias
         expiresIn: '7d'
     });
 
@@ -175,32 +178,24 @@ app.post("/login", async (req, res) => {
     });
 });
 
-async function validarToken(req, res, next){
-    /* return res.json({
-        mensagem: 'validou token'
-    }); */
-    const authHeader = req.headers.authorization;
-    const [bearer, token] = authHeader.split(' ');
-
-    if(!token){
-        return res.status(400).json({
-            erro: true,
-            mensagem: "Erro: Necessário fazer login para entrar na página !"
+app.get("/val-token", eAdmin, async (req, res) => {
+    await Usuario.findByPk(req.usuarioId, {
+        attributes: ['id', 'name', 'email']
+    })
+    .then((user) => {
+        return res.json({
+            erro: false,
+            mensagem: "Token válido",
+            user
         });
-    };
-
-    try{
-        const decoded = await promisify(jwt.verify)(token, 'a6f5dsa4f5d4as4w7ha');
-        req.usuarioId = decoded.id;
-
-        return next();  
-    } catch (err) {
-        return res.status(401).json({
+    }).catch((e) => {
+        return res.json({
             erro: true,
-            mensagem: "Erro: Necessário fazer login para entrar na página !"
+            mensagem: "Error",
+            e
         });
-    }
-}
+    });
+});
 
 app.listen(8080, () => {
     console.log("Server Iniciado");
